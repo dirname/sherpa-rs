@@ -81,6 +81,37 @@ impl AudioTag {
         }
         events
     }
+
+    /// Compute audio tagging with CED architecture, returning (label, probability) pairs.
+    /// Only CED models expose probability values.
+    pub fn compute_ced(&mut self, samples: Vec<f32>, sample_rate: u32) -> Vec<(String, f32)> {
+        let mut events = Vec::new();
+        unsafe {
+            let stream = sherpa_rs_sys::SherpaOnnxAudioTaggingCreateOfflineStream(self.audio_tag);
+            sherpa_rs_sys::SherpaOnnxAcceptWaveformOffline(
+                stream,
+                sample_rate as i32,
+                samples.as_ptr(),
+                samples.len() as i32,
+            );
+
+            let results = sherpa_rs_sys::SherpaOnnxAudioTaggingCompute(
+                self.audio_tag,
+                stream,
+                self.config.top_k,
+            );
+
+            for i in 0..self.config.top_k {
+                let event = *results.add(i.try_into().unwrap());
+                let event_name = cstr_to_string((*event).name as _);
+                let event_prob = (*event).prob;
+                events.push((event_name, event_prob));
+            }
+
+            sherpa_rs_sys::SherpaOnnxDestroyOfflineStream(stream);
+        }
+        events
+    }
 }
 
 unsafe impl Send for AudioTag {}
